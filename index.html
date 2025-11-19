@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ENSassets | Enterprise Asset Management (Local)</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        /* --- GLOBAL VARIABLES --- */
+        :root {
+            --ens-black: #111111;
+            --ens-dark: #1a1a1a;
+            --ens-yellow: #FFD200; 
+            --ens-yellow-hover: #e6bd00;
+            --bg-light: #f4f7f6;
+            --surface: #ffffff;
+            --text-main: #2c3e50;
+            --text-muted: #7f8c8d;
+            --border: #e2e8f0;
+            --sidebar-width: 260px;
+            --success: #27ae60;
+            --danger: #c0392b;
+            --warning: #f39c12;
+            --info: #3498db;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', 'Roboto', sans-serif; }
+        
+        body { display: flex; height: 100vh; background-color: var(--bg-light); color: var(--text-main); overflow: hidden; transition: background 0.3s; }
+
+        body.login-mode {
+            background-color: var(--ens-black);
+            background-image: radial-gradient(circle at 50% 50%, #1a1a1a 0%, #000000 100%);
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* --- LAYOUT --- */
+        #view-login { width: 100%; height: 100%; display: none; justify-content: center; align-items: center; }
+        #view-app { width: 100%; height: 100%; display: flex; opacity: 0; transition: opacity 0.5s; }
+        #view-app.visible { opacity: 1; }
+
+        /* --- LOGIN --- */
+        .auth-container { width: 100%; max-width: 420px; background: var(--surface); padding: 40px; border-radius: 12px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); animation: slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1); margin: auto; }
+        .auth-header { text-align: center; margin-bottom: 25px; }
+        .login-logo { font-size: 32px; font-weight: 800; color: var(--ens-black); border-left: 6px solid var(--ens-yellow); padding-left: 15px; display: inline-block; letter-spacing: 1px; margin-bottom: 10px; }
+        .login-logo span { color: var(--ens-yellow); }
+        .error-msg { background: #ffebee; color: var(--danger); padding: 12px; border-radius: 6px; font-size: 13px; margin-bottom: 20px; display: none; text-align: center; border: 1px solid #ffcdd2; }
+        .auth-switch { text-align: center; margin-top: 20px; font-size: 13px; color: #666; }
+        .auth-switch a { color: var(--ens-black); font-weight: 700; cursor: pointer; text-decoration: none; }
+        .auth-switch a:hover { text-decoration: underline; }
+        .signup-field { display: none; }
+        
+        @keyframes slideUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes shake { 0%, 100% {transform: translateX(0);} 25% {transform: translateX(-10px);} 75% {transform: translateX(10px);} }
+
+        /* --- SIDEBAR --- */
+        .sidebar { width: var(--sidebar-width); background-color: var(--ens-black); color: white; display: flex; flex-direction: column; flex-shrink: 0; transition: transform 0.3s; z-index: 100; position: relative; }
+        .logo { height: 70px; display: flex; align-items: center; padding: 0 25px; font-size: 22px; font-weight: 800; background: var(--ens-dark); border-left: 5px solid var(--ens-yellow); letter-spacing: 0.5px; }
+        .logo span { color: var(--ens-yellow); }
+        .nav-group { padding: 20px 15px; }
+        .nav-label { font-size: 11px; text-transform: uppercase; color: #666; margin-bottom: 10px; padding-left: 10px; font-weight: 700; letter-spacing: 1px; }
+        .nav-item { padding: 12px 15px; cursor: pointer; border-radius: 6px; margin-bottom: 5px; transition: all 0.2s; display: flex; align-items: center; gap: 12px; font-size: 14px; color: #aaa; font-weight: 500; }
+        .nav-item:hover { color: white; background: rgba(255,255,255,0.08); }
+        .nav-item.active { background-color: var(--ens-yellow); color: var(--ens-black); font-weight: 700; box-shadow: 0 4px 12px rgba(255, 210, 0, 0.2); }
+        .nav-item.disabled { opacity: 0.5; pointer-events: none; } /* Disabled state */
+
+        /* --- MAIN AREA --- */
+        .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+        .header { background: var(--surface); height: 70px; padding: 0 30px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+        .mobile-toggle { display: none; font-size: 20px; cursor: pointer; margin-right: 20px; }
+        .page-title h2 { font-size: 18px; font-weight: 700; margin: 0; }
+        .page-title span { font-size: 12px; color: var(--text-muted); }
+        .user-profile { display: flex; align-items: center; gap: 15px; cursor: pointer; padding: 5px 10px; border-radius: 8px; transition: 0.2s; }
+        .user-profile:hover { background-color: #f5f5f5; }
+        .avatar { width: 38px; height: 38px; background: var(--ens-black); color: var(--ens-yellow); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px; }
+
+        .content-area { padding: 30px; overflow-y: auto; flex: 1; }
+        .view-section { display: none; animation: fadeIn 0.3s ease-out; }
+        .view-section.active-view { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* --- COMPONENTS --- */
+        .dashboard-grid { display: grid; grid-template-columns: 3fr 1fr; gap: 25px; margin-bottom: 30px; }
+        .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 25px; }
+        .card { background: var(--surface); border-radius: 10px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.03); border: 1px solid var(--border); }
+        .stat-card { position: relative; overflow: hidden; border-left: 4px solid transparent; }
+        .stat-card h3 { font-size: 12px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px; font-weight: 700; }
+        .stat-card .value { font-size: 28px; font-weight: 800; color: var(--ens-black); }
+        .stat-card.yellow { border-left-color: var(--ens-yellow); }
+        .stat-card.red { border-left-color: var(--danger); }
+        .stat-card.green { border-left-color: var(--success); }
+        .stat-card.blue { border-left-color: var(--info); }
+
+        .table-container { background: var(--surface); border-radius: 10px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.03); border: 1px solid var(--border); }
+        table { width: 100%; border-collapse: collapse; }
+        th { background: #f8f9fa; padding: 15px 20px; text-align: left; font-size: 12px; color: #666; text-transform: uppercase; font-weight: 700; border-bottom: 2px solid var(--border); cursor: pointer; }
+        td { padding: 14px 20px; border-bottom: 1px solid var(--border); font-size: 14px; color: #333; }
+        tr:hover { background-color: #fcfcfc; }
+        .status-badge { padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; display: inline-block; }
+        .st-good { background: #d4edda; color: #155724; }
+        .st-assigned { background: #cce5ff; color: #004085; }
+        .st-pending { background: #fff3cd; color: #856404; }
+        .st-damaged { background: #f8d7da; color: #721c24; }
+        .st-maintenance { background: #e2e3e5; color: #383d41; }
+
+        /* Pagination Controls */
+        .pagination-controls { padding: 15px 20px; display: flex; justify-content: flex-end; align-items: center; gap: 10px; background: #fff; border-top: 1px solid var(--border); }
+        .pg-btn { padding: 5px 10px; font-size: 12px; border: 1px solid #ddd; border-radius: 4px; background: white; cursor: pointer; }
+        .pg-btn:hover { background: #f5f5f5; }
+        .pg-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .pg-info { font-size: 12px; color: #666; }
+
+        .form-control { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; transition: 0.2s; margin-bottom: 5px; background: #fff; }
+        .form-control:focus { border-color: var(--ens-yellow); outline: none; box-shadow: 0 0 0 3px rgba(255, 210, 0, 0.15); }
+        .form-label { display: block; font-size: 12px; font-weight: 700; margin-bottom: 6px; color: #555; }
+        .form-group { margin-bottom: 20px; }
+
+        .btn { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px; transition: 0.2s; display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 100px; }
+        .btn-primary { background-color: var(--ens-yellow); color: var(--ens-black); }
+        .btn-primary:hover { background-color: var(--ens-yellow-hover); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(255, 210, 0, 0.25); }
+        .btn-ghost { background: transparent; color: #666; border: 1px solid #ccc; }
+        .btn-secondary { background: white; color: #333; border: 1px solid #ddd; }
+        .btn-secondary:hover { background: #f9f9f9; }
+        .btn-danger { background-color: #ffebee; color: var(--danger); border: 1px solid #ffcdd2; }
+        .btn-danger:hover { background-color: #ffcdd2; }
+        .btn.loading { position: relative; color: transparent !important; pointer-events: none; }
+        .btn.loading::after { content: ""; position: absolute; width: 18px; height: 18px; border: 2px solid rgba(0,0,0,0.2); border-top-color: #333; border-radius: 50%; animation: spin 0.8s linear infinite; }
+        .icon-btn { padding: 6px; width: 32px; height: 32px; border-radius: 4px; background: transparent; border: 1px solid transparent; cursor: pointer; color: #666; display: inline-flex; justify-content: center; align-items: center; }
+        .icon-btn:hover { background: #eee; color: #333; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* --- MODALS --- */
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 2000; display: none; justify-content: center; align-items: center; backdrop-filter: blur(4px); animation: fadeIn 0.2s; }
+        .modal { background: white; width: 100%; max-width: 500px; padding: 30px; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); transform: scale(0.9); transition: 0.3s; position: relative; }
+        .modal.open { transform: scale(1); }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
+        .modal-title { font-size: 18px; font-weight: 800; color: var(--ens-black); }
+        .modal-close { cursor: pointer; font-size: 20px; color: #999; transition: 0.2s; }
+        .modal-close:hover { color: var(--danger); }
+        .modal-actions { display: flex; gap: 15px; margin-top: 25px; justify-content: flex-end; }
+
+        /* --- WIZARD & SIGNATURE --- */
+        .wizard-steps { display: flex; justify-content: space-between; margin-bottom: 30px; position: relative; max-width: 600px; margin-left: auto; margin-right: auto; }
+        .wizard-steps::before { content: ''; position: absolute; top: 15px; left: 0; width: 100%; height: 2px; background: #eee; z-index: 0; }
+        .step { position: relative; z-index: 1; background: var(--bg-light); width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 50%; border: 2px solid #ddd; color: #999; font-weight: bold; font-size: 13px; transition: 0.3s; }
+        .step.active { background: var(--ens-yellow); border-color: var(--ens-yellow); color: var(--ens-black); transform: scale(1.1); }
+        .step-label { position: absolute; top: 38px; left: 50%; transform: translateX(-50%); font-size: 11px; width: 80px; text-align: center; font-weight: 600; color: #888; }
+        
+        .signature-wrapper { border: 2px dashed #ccc; background: #f9f9f9; border-radius: 8px; position: relative; overflow: hidden; touch-action: none; }
+        .signature-wrapper:hover { border-color: var(--ens-yellow); background: #fff; }
+        canvas { display: block; width: 100%; height: 160px; cursor: crosshair; }
+        .sig-clear { position: absolute; top: 10px; right: 10px; font-size: 11px; cursor: pointer; color: var(--danger); background: rgba(255,255,255,0.9); padding: 4px 8px; border-radius: 4px; z-index: 10; border: 1px solid #eee; }
+
+        .damage-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; }
+        .damage-item { border: 1px solid #ddd; border-radius: 8px; padding: 15px; text-align: center; cursor: pointer; transition: 0.2s; background: white; }
+        .damage-item.selected { border-color: var(--danger); background: #fff5f5; color: var(--danger); font-weight: bold; }
+        .damage-item i { margin-bottom: 5px; font-size: 18px; }
+
+        /* --- LOG & TOAST --- */
+        .timeline-item { border-left: 2px solid var(--border); padding-left: 20px; position: relative; margin-bottom: 30px; }
+        .timeline-item::before { content: ''; position: absolute; left: -7px; top: 0; width: 14px; height: 14px; background: var(--surface); border: 2px solid var(--ens-yellow); border-radius: 50%; }
+        .timeline-header { display: flex; justify-content: space-between; align-items: center; }
+        .timeline-title { font-size: 15px; font-weight: 700; color: var(--ens-black); margin: 0 0 5px 0; }
+        .timeline-date { font-size: 11px; color: var(--text-muted); }
+        .timeline-details { font-size: 13px; color: #555; margin: 5px 0 0 0; }
+
+        .toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 2000; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+        .toast { min-width: 300px; background: white; padding: 16px 20px; border-radius: 8px; box-shadow: 0 8px 30px rgba(0,0,0,0.12); display: flex; align-items: center; gap: 12px; border-left: 4px solid #333; animation: slideIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); pointer-events: auto; }
+        .toast.success { border-left-color: var(--success); }
+        .toast.error { border-left-color: var(--danger); }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+        @media print {
+            body { background: white; height: auto; overflow: visible; }
+            .sidebar, .header, .filter-bar, .modal-overlay, .toast-container, .btn, .icon-btn, .pagination-controls { display: none !important; }
+            .main { margin-left: 0; height: auto; overflow: visible; }
+            .content-area { padding: 0; overflow: visible; }
+            .card { box-shadow: none; border: none; padding: 0; }
+            .table-container { box-shadow: none; border: 1px solid #ddd; }
+            table { font-size: 12px; width: 100%; }
+            th, td { padding: 8px; border: 1px solid #eee; }
+            .view-section { display: none; }
+            #view-inventory { display: block !important; } 
+        }
+
+        @media (max-width: 1024px) {
+            .sidebar { position: absolute; height: 100%; left: 0; transform: translateX(-100%); }
+            .sidebar.active { transform: translateX(0); box-shadow: 5px 0 30px rgba(0,0,0,0.2); }
+            .mobile-toggle { display: block; }
+            .dashboard-grid { grid-template-columns: 1fr; }
+            .stats-row { grid-template-columns: 1fr 1fr; }
+        }
+    </style>
+</head>
+<body class="login-mode">
+
+    <div id="view-login">
+        <div class="auth-container">
+            <div class="auth-header">
+                <div class="login-logo">ENS<span>assets</span></div>
+                <div style="color:#666; font-size:14px;" id="auth-subtitle">Sign in to manage enterprise assets</div>
+            </div>
+            <div class="error-msg" id="login-error"><i class="fas fa-exclamation-circle"></i> Invalid credentials</div>
+            
+            <form onsubmit="App.handleAuth(event)">
+                <div class="form-group signup-field">
+                    <label class="form-label">Full Name</label>
+                    <input type="text" id="signup-name" class="form-control" placeholder="e.g. John Doe">
+                </div>
+                <div class="form-group signup-field">
+                    <label class="form-label">Role</label>
+                    <select id="signup-role" class="form-control">
+                        <option value="IT Asset Mgr">IT Asset Manager</option>
+                        <option value="Controller">Controller</option>
+                        <option value="Auditor">Auditor</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Email or Username</label>
+                    <input type="text" id="login-email" class="form-control" placeholder="admin" value="admin">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Password</label>
+                    <input type="password" id="login-password" class="form-control" placeholder="••••••••" value="password">
+                </div>
+                
+                <button type="submit" id="btn-login" class="btn btn-primary" style="width:100%">
+                    <span id="auth-btn-label">Sign In</span> <i class="fas fa-arrow-right"></i>
+                </button>
+            </form>
+            
+            <div class="auth-switch">
+                <span id="auth-switch-text">Don't have an account?</span> 
+                <a onclick="App.toggleAuthMode()" id="auth-switch-link">Sign Up here</a>
+            </div>
+            <div class="auth-switch" style="margin-top: 10px;">
+                <a onclick="App.forgotPassword()" style="color:#999; font-weight:normal; font-size:12px;">Forgot password?</a>
+            </div>
+        </div>
+    </div>
+
+    <div id="view-app" style="display:none;">
+        <div class="sidebar" id="sidebar">
+            <div class="logo">ENS<span>assets</span></div>
+            <div class="nav-group">
+                <div class="nav-label">Overview</div>
+                <div class="nav-item active" onclick="UI.switchView('dashboard', this)"><i class="fas fa-chart-pie" style="width:20px"></i> Dashboard</div>
+                <div class="nav-item" onclick="UI.switchView('inventory', this)"><i class="fas fa-boxes" style="width:20px"></i> Inventory DB</div>
+                <div class="nav-item" onclick="UI.switchView('history', this)"><i class="fas fa-history" style="width:20px"></i> Audit Log</div>
+            </div>
+            <div class="nav-group">
+                <div class="nav-label">Workflows</div>
+                <div class="nav-item wf-item" onclick="UI.switchView('issuance', this)"><i class="fas fa-user-plus" style="width:20px"></i> Starters (Issue)</div>
+                <div class="nav-item wf-item" onclick="UI.switchView('movement', this)"><i class="fas fa-exchange-alt" style="width:20px"></i> Movers (Transfer)</div>
+                <div class="nav-item wf-item" onclick="UI.switchView('retrieval', this)"><i class="fas fa-user-minus" style="width:20px"></i> Leavers (Return)</div>
+            </div>
+            <div class="nav-group">
+                <div class="nav-label">Data Management</div>
+                <div class="nav-item" onclick="DataService.backupData()"><i class="fas fa-download" style="width:20px"></i> Backup Data</div>
+                <div class="nav-item" onclick="document.getElementById('restore-input').click()"><i class="fas fa-upload" style="width:20px"></i> Restore Data</div>
+                <input type="file" id="restore-input" style="display:none" accept=".json" onchange="DataService.restoreData(event)">
+            </div>
+            <div style="margin-top: auto; padding: 20px;">
+                <button class="btn btn-ghost" style="width:100%; color: #888; border-color:#444;" onclick="App.logout()"><i class="fas fa-sign-out-alt"></i> Sign Out</button>
+            </div>
+        </div>
+
+        <div class="main" id="mainContent">
+            <div class="header">
+                <div style="display:flex; align-items:center;">
+                    <div class="mobile-toggle" onclick="UI.toggleSidebar()"><i class="fas fa-bars"></i></div>
+                    <div class="page-title"><h2 id="pageTitle">Dashboard Overview</h2><span id="currentDate">Loading...</span></div>
+                </div>
+                <div class="user-profile" onclick="UI.openProfileModal()" title="View/Edit Profile">
+                    <div style="text-align:right; font-size:13px;">
+                        <div style="font-weight:bold;" id="user-name-display">Admin User</div>
+                        <div style="color:#888;" id="user-role-display">IT Asset Mgr</div>
+                    </div>
+                    <div class="avatar" id="user-avatar-display">AU</div>
+                </div>
+            </div>
+
+            <div class="content-area">
+                <div id="view-dashboard" class="view-section active-view">
+                    <div class="stats-row">
+                        <div class="card stat-card yellow"><h3>Pending Actions</h3><div class="value">12</div></div>
+                        <div class="card stat-card red"><h3>Overdue Assets</h3><div class="value" style="color:var(--danger)">4</div></div>
+                        <div class="card stat-card blue"><h3>Total Assets</h3><div class="value" id="stat-total">0</div></div>
+                        <div class="card stat-card green"><h3>Stock Available</h3><div class="value" id="stat-stock">0</div></div>
+                    </div>
+                    <div class="dashboard-grid">
+                        <div class="table-container">
+                            <div style="padding:18px 20px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center;">
+                                <h3 style="font-size:14px; font-weight:700;">Recent Workflow Activity</h3>
+                                <span style="font-size:11px; color:#999;">Real-time</span>
+                            </div>
+                            <table id="activityTable"><thead><tr><th>Ref</th><th>User</th><th>Type</th><th>Date</th><th>Status</th></tr></thead><tbody></tbody></table>
+                        </div>
+                        <div class="card">
+                            <h3 style="font-size:14px; font-weight:700; margin-bottom:15px;">Asset Types</h3>
+                            <div style="height: 200px;"><canvas id="assetChart"></canvas></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="view-inventory" class="view-section">
+                    <div class="filter-bar">
+                        <div style="flex:1; position:relative;">
+                            <i class="fas fa-search" style="position:absolute; left:12px; top:12px; color:#999;"></i>
+                            <input type="text" id="inv-search" class="form-control" placeholder="Search..." style="padding-left:35px; margin:0;" onkeyup="UI.resetPagination()">
+                        </div>
+                        <select id="inv-filter" class="form-control" style="width:150px; margin:0;" onchange="UI.resetPagination()">
+                            <option value="All">All Status</option><option value="Available">Available</option><option value="Assigned">Assigned</option><option value="Damaged">Damaged</option><option value="Maintenance">Maintenance</option>
+                        </select>
+                        <button class="btn btn-secondary" onclick="document.getElementById('import-csv').click()" title="Import CSV"><i class="fas fa-file-import"></i> Import</button>
+                        <input type="file" id="import-csv" style="display:none" accept=".csv" onchange="UI.handleImport(event)">
+                        <button class="btn btn-secondary" onclick="DataService.exportCSV()" title="Export CSV"><i class="fas fa-file-export"></i> Export</button>
+                        <button class="btn btn-secondary" onclick="UI.printInventory()" title="Print List"><i class="fas fa-print"></i> Print</button>
+                        <button class="btn btn-primary" id="btn-add-new" style="padding:10px 15px;" onclick="UI.openModal('add')"><i class="fas fa-plus"></i> Add New</button>
+                    </div>
+                    <div class="table-container">
+                        <table id="inventoryTable"><thead><tr><th>Asset Tag</th><th>Type</th><th>Model</th><th>Assigned User</th><th>Status</th><th>Action</th></tr></thead><tbody></tbody></table>
+                        <div class="pagination-controls">
+                            <span class="pg-info" id="pg-info">Showing 0-0 of 0</span>
+                            <button class="pg-btn" id="pg-prev" onclick="UI.changePage(-1)">Prev</button>
+                            <button class="pg-btn" id="pg-next" onclick="UI.changePage(1)">Next</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="view-issuance" class="view-section">
+                    <div class="card" style="max-width: 700px; margin: 0 auto;" id="issuance-card">
+                        <h3 style="margin-bottom:30px; text-align:center;">Asset Issuance Workflow</h3>
+                        <div class="wizard-steps">
+                            <div class="step active" id="i-step-1">1<div class="step-label">Employee</div></div><div class="step" id="i-step-2">2<div class="step-label">Asset</div></div><div class="step" id="i-step-3">3<div class="step-label">Sign</div></div>
+                        </div>
+                        <div id="form-step-1">
+                            <div class="form-group"><label class="form-label">Full Name</label><input type="text" id="iss-name" class="form-control" oninput="Workflow.autoFillEmail()"></div>
+                            <div class="form-group"><label class="form-label">Email Address</label><input type="email" id="iss-email" class="form-control" placeholder="user@ensafrica.com"></div>
+                            <div class="form-group"><label class="form-label">Department</label><select class="form-control"><option>Engineering</option><option>Sales</option><option>Legal</option><option>HR</option></select></div>
+                            <div style="text-align:right; margin-top:20px;"><button class="btn btn-primary" onclick="Workflow.nextStep(2)">Next <i class="fas fa-arrow-right"></i></button></div>
+                        </div>
+                        <div id="form-step-2" style="display:none;">
+                            <div class="form-group"><label class="form-label">Asset Tag</label><input type="text" id="iss-tag" class="form-control" placeholder="Scan or type Tag"></div>
+                            <div class="form-group"><label class="form-label">Device Model (Verification)</label><input type="text" id="iss-model" class="form-control" readonly style="background:#f9f9f9;"></div>
+                            <div style="display:flex; justify-content:space-between; margin-top:20px;">
+                                <button class="btn btn-ghost" onclick="Workflow.prevStep(1)">Back</button><button class="btn btn-primary" onclick="Workflow.nextStep(3)">Next <i class="fas fa-arrow-right"></i></button>
+                            </div>
+                        </div>
+                        <div id="form-step-3" style="display:none;">
+                            <p style="font-size:13px; color:#666; margin-bottom:15px;">I acknowledge receipt of the device listed above.</p>
+                            <div class="signature-wrapper"><div class="sig-clear" onclick="Workflow.clearSig()">Clear</div><canvas id="sig-canvas"></canvas></div>
+                            <div style="display:flex; justify-content:space-between; margin-top:25px;">
+                                <button class="btn btn-ghost" onclick="Workflow.prevStep(2)">Back</button><button class="btn btn-primary" id="btn-complete-iss" onclick="Workflow.completeIssuance()"><i class="fas fa-file-signature"></i> Sign & Issue</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="view-movement" class="view-section">
+                    <div class="card" style="max-width: 600px; margin: 0 auto;">
+                        <h3>Transfer Asset Custody</h3>
+                        <div class="form-group" style="margin-top:20px;"><label class="form-label">Asset Tag</label><input type="text" id="mov-tag" class="form-control"></div>
+                        <div class="form-group"><label class="form-label">New Owner Name</label><input type="text" id="mov-new" class="form-control"></div>
+                        <button class="btn btn-primary" id="btn-complete-mov" onclick="Workflow.completeMovement()" style="width:100%; margin-top:10px;">Authorize Transfer</button>
+                    </div>
+                </div>
+
+                <div id="view-retrieval" class="view-section">
+                    <div class="card" style="max-width: 700px; margin: 0 auto;">
+                        <h3>Asset Retrieval & Health Check</h3>
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px; margin-top:20px;">
+                            <div class="form-group"><label class="form-label">Asset Tag</label><input type="text" id="ret-tag" class="form-control"></div>
+                             <div class="form-group"><label class="form-label">Received By</label><input type="text" id="ret-admin" class="form-control" value="Admin" disabled></div>
+                        </div>
+                        <label class="form-label">Visual Damage (Select if damaged)</label>
+                        <div class="damage-grid" id="damageGrid">
+                            <div class="damage-item" onclick="this.classList.toggle('selected')"><i class="fas fa-desktop"></i> <span>Screen</span></div>
+                            <div class="damage-item" onclick="this.classList.toggle('selected')"><i class="fas fa-keyboard"></i> <span>Keyboard</span></div>
+                            <div class="damage-item" onclick="this.classList.toggle('selected')"><i class="fas fa-battery-full"></i> <span>Battery</span></div>
+                        </div>
+                        <button class="btn btn-primary" id="btn-complete-ret" onclick="Workflow.completeRetrieval()" style="width:100%; margin-top:20px;">Process Return</button>
+                    </div>
+                </div>
+
+                <div id="view-history" class="view-section">
+                    <div class="card"><h3>System Audit Log</h3><div style="padding:20px 0;" id="auditTimeline"></div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="assetModal">
+        <div class="modal">
+            <div class="modal-header"><div class="modal-title" id="modalTitle">Add New Asset</div><div class="modal-close" onclick="UI.closeModal('assetModal')"><i class="fas fa-times"></i></div></div>
+            <form id="assetForm" onsubmit="UI.saveAsset(event)">
+                <input type="hidden" id="mod-mode" value="add"> 
+                <div class="form-group"><label class="form-label">Asset Tag (ID)</label><input type="text" id="mod-tag" class="form-control" placeholder="e.g., ENS-L-999" required></div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
+                    <div class="form-group"><label class="form-label">Type</label><select id="mod-type" class="form-control"><option>Laptop</option><option>Mobile</option><option>Monitor</option><option>Accessory</option></select></div>
+                    <div class="form-group"><label class="form-label">Status</label><select id="mod-status" class="form-control"><option>Available</option><option>Assigned</option><option>Damaged</option><option>Maintenance</option></select></div>
+                </div>
+                <div class="form-group"><label class="form-label">Model / Description</label><input type="text" id="mod-model" class="form-control" placeholder="e.g., MacBook Pro M2" required></div>
+                <div class="form-group"><label class="form-label">Current User</label><input type="text" id="mod-user" class="form-control" placeholder="System (if available)"></div>
+                <div class="modal-actions">
+                    <button type="button" id="btn-delete-asset" class="btn btn-danger" style="display:none;" onclick="UI.deleteAsset()">Delete</button>
+                    <button type="button" class="btn btn-ghost" onclick="UI.closeModal('assetModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Asset</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="profileModal">
+        <div class="modal">
+            <div class="modal-header"><div class="modal-title">User Profile</div><div class="modal-close" onclick="UI.closeModal('profileModal')"><i class="fas fa-times"></i></div></div>
+            <form onsubmit="UI.saveProfile(event)">
+                <div style="display:flex; justify-content:center; margin-bottom:20px;">
+                    <div style="width:80px; height:80px; background:var(--ens-black); color:var(--ens-yellow); border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:30px; font-weight:bold;" id="profile-modal-avatar">AU</div>
+                </div>
+                <div class="form-group"><label class="form-label">Full Name</label><input type="text" id="profile-name" class="form-control" required></div>
+                <div class="form-group"><label class="form-label">Email / Username</label><input type="text" id="profile-email" class="form-control" disabled style="background:#f0f0f0;"></div>
+                <div class="form-group"><label class="form-label">Role</label><input type="text" id="profile-role" class="form-control" required></div>
+                
+                <div class="modal-actions" style="justify-content: space-between;">
+                    <button type="button" class="btn btn-danger" onclick="App.logout()">Sign Out</button>
+                    <div style="display:flex; gap:10px;">
+                        <button type="button" class="btn btn-ghost" onclick="UI.closeModal('profileModal')">Close</button>
+                        <button type="submit" class="btn btn-primary">Save Changes</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="qrModal">
+        <div class="modal" style="text-align:center;">
+            <div class="modal-header"><div class="modal-title">Asset QR Code</div><div class="modal-close" onclick="document.getElementById('qrModal').style.display='none'"><i class="fas fa-times"></i></div></div>
+            <div id="qr-display" style="display:flex; justify-content:center; margin:20px 0;"></div>
+            <p style="color:#666; font-size:13px; margin-bottom:20px;">Scan to view asset details</p>
+            <h3 id="qr-tag-label" style="margin-bottom:20px; color:var(--ens-black);"></h3>
+            <button class="btn btn-secondary" onclick="document.getElementById('qrModal').style.display='none'">Close</button>
+        </div>
+    </div>
+
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script>
+        // --- HELPER: XSS SANITIZATION ---
+        const escapeHTML = (str) => {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        // --- APP LOGIC ---
+        const App = {
+            isSignup: false,
+            
+            init: () => {
+                DataService.init();
+                const user = JSON.parse(localStorage.getItem('ensCurrentUser'));
+                user ? App.showDashboard(user) : App.showLogin();
+            },
+            
+            toggleAuthMode: () => {
+                App.isSignup = !App.isSignup;
+                const title = document.getElementById('auth-subtitle');
+                const btn = document.getElementById('auth-btn-label');
+                const text = document.getElementById('auth-switch-text');
+                const link = document.getElementById('auth-switch-link');
+                const signupFields = document.querySelectorAll('.signup-field');
+
+                if(App.isSignup) {
+                    title.innerText = "Create a new account";
+                    btn.innerText = "Sign Up & Login";
+                    text.innerText = "Already have an account?";
+                    link.innerText = "Sign In here";
+                    signupFields.forEach(el => el.style.display = 'block');
+                } else {
+                    title.innerText = "Sign in to manage enterprise assets";
+                    btn.innerText = "Sign In";
+                    text.innerText = "Don't have an account?";
+                    link.innerText = "Sign Up here";
+                    signupFields.forEach(el => el.style.display = 'none');
+                }
+            },
+
+            handleAuth: (e) => {
+                e.preventDefault();
+                const email = document.getElementById('login-email').value.trim();
+                const pass = document.getElementById('login-password').value.trim();
+                const err = document.getElementById('login-error');
+                const btn = document.getElementById('btn-login');
+                
+                if(!email || !pass) return;
+
+                btn.classList.add('loading');
+                err.style.display = 'none';
+
+                setTimeout(() => {
+                    let users = DataService.get('ensUsers');
+                    
+                    if (App.isSignup) {
+                        const name = document.getElementById('signup-name').value.trim();
+                        const role = document.getElementById('signup-role').value;
+                        if (!name) { err.innerText = "Please enter your full name."; err.style.display = 'block'; btn.classList.remove('loading'); return; }
+                        if (users.find(u => u.username === email)) { err.innerText = "User already exists!"; err.style.display = 'block'; btn.classList.remove('loading'); return; }
+                        const newUser = { id: Date.now(), username: email, password: pass, name: name, role: role };
+                        users.push(newUser);
+                        DataService.set('ensUsers', users);
+                        localStorage.setItem('ensCurrentUser', JSON.stringify(newUser));
+                        App.showDashboard(newUser);
+                    } else {
+                        const user = users.find(u => u.username === email && u.password === pass);
+                        if (user) {
+                            localStorage.setItem('ensCurrentUser', JSON.stringify(user));
+                            App.showDashboard(user);
+                        } else {
+                            err.innerText = "Invalid credentials"; err.style.display = 'block';
+                            document.querySelector('.auth-container').style.animation = 'none';
+                            setTimeout(() => document.querySelector('.auth-container').style.animation = 'shake 0.4s', 10);
+                        }
+                    }
+                    btn.classList.remove('loading');
+                }, 800);
+            },
+            
+            forgotPassword: () => {
+                const email = prompt("Enter your username/email to reset password:");
+                if (!email) return;
+                let users = DataService.get('ensUsers');
+                let user = users.find(u => u.username === email);
+                if (user) {
+                    const newPass = prompt("User found! Enter new password:");
+                    if (newPass) {
+                        user.password = newPass;
+                        DataService.set('ensUsers', users);
+                        alert("Password updated successfully. Please login.");
+                    }
+                } else {
+                    alert("User not found.");
+                }
+            },
+
+            showLogin: () => {
+                document.body.classList.add('login-mode');
+                document.getElementById('view-login').style.display = 'flex';
+                document.getElementById('view-app').classList.remove('visible');
+                setTimeout(() => document.getElementById('view-app').style.display = 'none', 100);
+            },
+            
+            showDashboard: (user) => {
+                UI.updateProfileUI(user);
+                UI.applyPermissions(user); // Apply RBAC
+                document.getElementById('currentDate').innerText = new Date().toLocaleDateString();
+                document.getElementById('view-login').style.display = 'none';
+                document.body.classList.remove('login-mode');
+                document.getElementById('view-app').style.display = 'flex';
+                setTimeout(() => document.getElementById('view-app').classList.add('visible'), 50);
+                UI.renderDashboard();
+                Workflow.initSig();
+            },
+            
+            logout: () => {
+                localStorage.removeItem('ensCurrentUser');
+                UI.showToast('Logged out successfully');
+                setTimeout(() => App.showLogin(), 500);
+            }
+        };
+
+        // --- DATA SERVICE (LOCAL STORAGE) ---
+        const DataService = {
+            init: () => {
+                if (!localStorage.getItem('ensUsers')) {
+                    const defaultUsers = [
+                        { id: 1, username: 'admin', password: 'password', name: 'System Admin', role: 'IT Asset Mgr' },
+                        { id: 2, username: 'sarah', password: 'password', name: 'Sarah Jenkins', role: 'Controller' }
+                    ];
+                    localStorage.setItem('ensUsers', JSON.stringify(defaultUsers));
+                }
+                if(!localStorage.getItem('ensDataInit_v4')) { // Bumped version to ensure init
+                    localStorage.setItem('ensInventory', JSON.stringify([
+                        { tag: 'ENS-L-101', type: 'Laptop', model: 'Dell XPS 15', user: 'System', status: 'Available' },
+                        { tag: 'ENS-L-102', type: 'Laptop', model: 'MacBook Pro', user: 'Alice Freeman', status: 'Assigned' },
+                        { tag: 'ENS-M-201', type: 'Mobile', model: 'iPhone 14', user: 'Bob Smith', status: 'Assigned' },
+                        { tag: 'ENS-M-202', type: 'Mobile', model: 'Samsung S23', user: 'System', status: 'Damaged' }
+                    ]));
+                    localStorage.setItem('ensActivity', JSON.stringify([{ ref: 'WF-001A', user: 'System', type: 'Init', date: new Date().toISOString(), details: 'System initialized.' }]));
+                    localStorage.setItem('ensDataInit_v4', 'true');
+                }
+            },
+            get: (key) => JSON.parse(localStorage.getItem(key) || '[]'),
+            set: (key, val) => localStorage.setItem(key, JSON.stringify(val)),
+            
+            updateInv: (tag, updates) => {
+                let inv = DataService.get('ensInventory');
+                const idx = inv.findIndex(i => i.tag === tag);
+                if(idx >= 0) { 
+                    inv[idx] = { ...inv[idx], ...updates };
+                    if (updates.status === 'Available' || updates.status === 'Damaged' || updates.status === 'Maintenance') { 
+                        if(!updates.user) inv[idx].user = 'System'; 
+                    }
+                } else { 
+                    inv.push({ 
+                        tag, 
+                        type: updates.type||'Unknown', 
+                        model: updates.model||'Generic', 
+                        status: updates.status||'Available', 
+                        user: updates.user||'System' 
+                    });
+                }
+                DataService.set('ensInventory', inv);
+            },
+            deleteInv: (tag) => {
+                const inv = DataService.get('ensInventory').filter(i => i.tag !== tag);
+                DataService.set('ensInventory', inv);
+            },
+            addActivity: (type, details, user) => {
+                const act = DataService.get('ensActivity');
+                act.unshift({ ref: `WF-${Date.now().toString().slice(-4)}`, user: user||'System', type, date: new Date().toISOString(), details });
+                // Limit log to 500 to prevent storage overflow
+                if(act.length > 500) act.pop();
+                DataService.set('ensActivity', act);
+            },
+            
+            // --- IMPORT / EXPORT / BACKUP ---
+            importCSV: (file) => {
+                Papa.parse(file, { header: true, skipEmptyLines: true, complete: (results) => {
+                    if (results.data && results.data.length > 0) {
+                        let count = 0;
+                        results.data.forEach(row => { 
+                            if(row.tag) { 
+                                // Basic sanitization on import
+                                DataService.updateInv(escapeHTML(row.tag), { 
+                                    type: escapeHTML(row.type), 
+                                    model: escapeHTML(row.model), 
+                                    user: escapeHTML(row.user), 
+                                    status: escapeHTML(row.status) 
+                                }); 
+                                count++; 
+                            } 
+                        });
+                        UI.showToast(`${count} records imported locally.`);
+                        UI.resetPagination();
+                    }
+                }});
+            },
+            exportCSV: () => {
+                const inv = DataService.get('ensInventory');
+                if(inv.length === 0) return alert('No data');
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(new Blob([Papa.unparse(inv)], { type: 'text/csv;charset=utf-8;' }));
+                link.download = `ENS_Local_Inventory.csv`;
+                document.body.appendChild(link); link.click(); document.body.removeChild(link);
+            },
+            
+            // FULL BACKUP (JSON)
+            backupData: () => {
+                const backup = {
+                    users: DataService.get('ensUsers'),
+                    inventory: DataService.get('ensInventory'),
+                    activity: DataService.get('ensActivity')
+                };
+                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backup));
+                const link = document.createElement('a');
+                link.setAttribute("href", dataStr);
+                link.setAttribute("download", `ENS_Backup_${new Date().toISOString().slice(0,10)}.json`);
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+            },
+            
+            // RESTORE (JSON)
+            restoreData: (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    try {
+                        const backup = JSON.parse(e.target.result);
+                        if (backup.users && backup.inventory && backup.activity) {
+                            if(confirm("This will OVERWRITE all current data. Continue?")) {
+                                DataService.set('ensUsers', backup.users);
+                                DataService.set('ensInventory', backup.inventory);
+                                DataService.set('ensActivity', backup.activity);
+                                alert("Restore successful! The page will now reload.");
+                                location.reload();
+                            }
+                        } else {
+                            alert("Invalid backup file.");
+                        }
+                    } catch (err) {
+                        alert("Error parsing backup file.");
+                    }
+                };
+                reader.readAsText(file);
+                e.target.value = ''; // reset input
+            }
+        };
+
+        // --- UI CONTROLLER ---
+        const UI = {
+            chartInstance: null,
+            currentPage: 1,
+            rowsPerPage: 10,
+            
+            applyPermissions: (user) => {
+                // RBAC LOGIC
+                const isAuditor = user.role === 'Auditor';
+                const isViewer = user.role === 'Viewer';
+                const isRestricted = isAuditor || isViewer;
+                
+                // Hide Add Button
+                document.getElementById('btn-add-new').style.display = isRestricted ? 'none' : 'inline-flex';
+                
+                // Disable Workflows
+                document.querySelectorAll('.wf-item').forEach(el => {
+                    if(isRestricted) el.classList.add('disabled');
+                    else el.classList.remove('disabled');
+                });
+            },
+
+            showToast: (msg, type = 'success') => {
+                const box = document.getElementById('toastContainer');
+                const el = document.createElement('div');
+                el.className = `toast ${type}`;
+                const icon = type === 'success' ? 'check-circle' : 'exclamation-circle';
+                const color = type === 'success' ? 'var(--success)' : 'var(--danger)';
+                el.innerHTML = `<i class="fas fa-${icon}" style="color:${color}"></i><span>${msg}</span>`;
+                box.appendChild(el); setTimeout(() => el.remove(), 3000);
+            },
+            toggleSidebar: () => document.getElementById('sidebar').classList.toggle('active'),
+            switchView: (view, el) => {
+                document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+                if(el) el.classList.add('active');
+                document.querySelectorAll('.view-section').forEach(v => v.classList.remove('active-view'));
+                document.getElementById(`view-${view}`).classList.add('active-view');
+                document.getElementById('sidebar').classList.remove('active');
+                if(view === 'dashboard') UI.renderDashboard();
+                if(view === 'inventory') UI.renderInventory();
+                if(view === 'history') UI.renderHistory();
+            },
+            
+            // -- Modal Logic --
+            openModal: (mode, tag = '') => {
+                const modal = document.getElementById('assetModal');
+                document.getElementById('assetForm').reset();
+                modal.style.display = 'flex'; setTimeout(() => modal.querySelector('.modal').classList.add('open'), 10);
+                const title = document.getElementById('modalTitle');
+                const delBtn = document.getElementById('btn-delete-asset');
+                const elTag = document.getElementById('mod-tag');
+                const elMode = document.getElementById('mod-mode');
+                
+                if (mode === 'edit') {
+                    elMode.value = 'edit';
+                    title.innerText = 'Edit Asset'; elTag.value = tag; elTag.disabled = true; elTag.style.backgroundColor = '#f0f0f0'; delBtn.style.display = 'block';
+                    const item = DataService.get('ensInventory').find(i => i.tag === tag);
+                    if(item) {
+                        document.getElementById('mod-type').value = item.type;
+                        document.getElementById('mod-model').value = item.model;
+                        document.getElementById('mod-status').value = item.status;
+                        document.getElementById('mod-user').value = item.user;
+                    }
+                } else {
+                    elMode.value = 'add';
+                    title.innerText = 'Add New Asset'; elTag.disabled = false; elTag.style.backgroundColor = '#fff'; delBtn.style.display = 'none';
+                }
+            },
+
+            openProfileModal: () => {
+                const user = JSON.parse(localStorage.getItem('ensCurrentUser'));
+                if (!user) return;
+                document.getElementById('profile-name').value = user.name;
+                document.getElementById('profile-email').value = user.username;
+                document.getElementById('profile-role').value = user.role;
+                const initials = user.name.split(' ').map(n=>n[0]).join('');
+                document.getElementById('profile-modal-avatar').innerText = initials;
+                
+                const modal = document.getElementById('profileModal');
+                modal.style.display = 'flex';
+                setTimeout(() => modal.querySelector('.modal').classList.add('open'), 10);
+            },
+
+            saveProfile: (e) => {
+                e.preventDefault();
+                const name = document.getElementById('profile-name').value;
+                const role = document.getElementById('profile-role').value;
+                
+                // Get Current User
+                let user = JSON.parse(localStorage.getItem('ensCurrentUser'));
+                user.name = name;
+                user.role = role;
+                localStorage.setItem('ensCurrentUser', JSON.stringify(user));
+
+                // Update in User DB
+                let users = DataService.get('ensUsers');
+                const idx = users.findIndex(u => u.username === user.username);
+                if (idx >= 0) {
+                    users[idx].name = name;
+                    users[idx].role = role;
+                    DataService.set('ensUsers', users);
+                }
+
+                UI.updateProfileUI(user);
+                UI.closeModal('profileModal');
+                UI.showToast('Profile Updated Successfully');
+            },
+
+            updateProfileUI: (user) => {
+                document.getElementById('user-name-display').innerText = user.name;
+                document.getElementById('user-role-display').innerText = user.role;
+                document.getElementById('user-avatar-display').innerText = user.name.split(' ').map(n=>n[0]).join('');
+            },
+
+            closeModal: (id) => {
+                const modal = document.getElementById(id);
+                modal.querySelector('.modal').classList.remove('open'); setTimeout(() => modal.style.display = 'none', 300);
+            },
+            
+            saveAsset: (e) => {
+                e.preventDefault();
+                const tag = document.getElementById('mod-tag').value.trim();
+                const mode = document.getElementById('mod-mode').value;
+                if(!tag) return;
+                
+                // Duplicate Check Logic
+                if (mode === 'add') {
+                    const exists = DataService.get('ensInventory').find(i => i.tag === tag);
+                    if (exists) {
+                        alert(`Asset ID ${tag} already exists! Use a unique tag.`);
+                        return;
+                    }
+                }
+
+                const updates = {
+                    type: document.getElementById('mod-type').value,
+                    model: document.getElementById('mod-model').value,
+                    status: document.getElementById('mod-status').value,
+                    user: document.getElementById('mod-user').value || 'System'
+                };
+                DataService.updateInv(tag, updates);
+                DataService.addActivity(mode === 'add' ? 'Create' : 'Update', `Asset ${tag} ${mode === 'add' ? 'created' : 'updated'}.`, JSON.parse(localStorage.getItem('ensCurrentUser'))?.name);
+                UI.showToast('Asset Saved Locally'); UI.closeModal('assetModal'); UI.renderInventory(); UI.renderDashboard();
+            },
+            deleteAsset: () => {
+                const tag = document.getElementById('mod-tag').value;
+                if(confirm(`Delete ${tag}? This cannot be undone.`)) {
+                    DataService.deleteInv(tag);
+                    DataService.addActivity('Delete', `Asset ${tag} deleted.`, JSON.parse(localStorage.getItem('ensCurrentUser'))?.name);
+                    UI.showToast('Asset Deleted'); UI.closeModal('assetModal'); UI.renderInventory(); UI.renderDashboard();
+                }
+            },
+            printInventory: () => window.print(),
+            handleImport: (e) => { if(e.target.files[0]) { DataService.importCSV(e.target.files[0]); e.target.value=''; } },
+            showQR: (tag) => {
+                document.getElementById('qr-display').innerHTML = '';
+                document.getElementById('qr-tag-label').innerText = tag;
+                new QRCode(document.getElementById('qr-display'), { text: tag, width: 128, height: 128 });
+                document.getElementById('qrModal').style.display = 'flex';
+            },
+            renderDashboard: () => {
+                const inv = DataService.get('ensInventory');
+                const act = DataService.get('ensActivity');
+                document.getElementById('stat-total').innerText = inv.length;
+                document.getElementById('stat-stock').innerText = inv.filter(i => i.status === 'Available').length;
+                
+                // Activity (using sanitization)
+                const tbody = document.querySelector('#activityTable tbody');
+                tbody.innerHTML = act.slice(0,5).map(x => `<tr><td>${escapeHTML(x.ref)}</td><td>${escapeHTML(x.user)}</td><td>${escapeHTML(x.type)}</td><td>${new Date(x.date).toLocaleDateString()}</td><td><span class="status-badge st-good">Complete</span></td></tr>`).join('');
+
+                // Chart
+                const counts = inv.reduce((acc, item) => { acc[item.type] = (acc[item.type] || 0) + 1; return acc; }, {});
+                if (UI.chartInstance) {
+                    UI.chartInstance.data.labels = Object.keys(counts);
+                    UI.chartInstance.data.datasets[0].data = Object.values(counts);
+                    UI.chartInstance.update();
+                } else {
+                    const ctx = document.getElementById('assetChart').getContext('2d');
+                    UI.chartInstance = new Chart(ctx, { type: 'doughnut', data: { labels: Object.keys(counts), datasets: [{ data: Object.values(counts), backgroundColor: ['#FFD200', '#111', '#3498db', '#27ae60'], borderWidth:0 }] }, options: { maintainAspectRatio:false, cutout:'75%', plugins:{legend:{position:'right'}} } });
+                }
+            },
+            
+            // --- PAGINATION LOGIC ---
+            resetPagination: () => { UI.currentPage = 1; UI.renderInventory(); },
+            changePage: (delta) => { UI.currentPage += delta; UI.renderInventory(); },
+            
+            renderInventory: () => {
+                const search = document.getElementById('inv-search').value.toLowerCase();
+                const filter = document.getElementById('inv-filter').value;
+                let inv = DataService.get('ensInventory');
+                
+                // RBAC Check
+                const user = JSON.parse(localStorage.getItem('ensCurrentUser'));
+                const isRestricted = user && user.role === 'Auditor';
+
+                // Filter Data
+                const filtered = inv.filter(item => {
+                    if(filter !== 'All' && item.status !== filter) return false;
+                    if(search && ![item.tag, item.user, item.model].some(s => (s||'').toLowerCase().includes(search))) return false;
+                    return true;
+                });
+
+                // Pagination Slicing
+                const total = filtered.length;
+                const start = (UI.currentPage - 1) * UI.rowsPerPage;
+                const end = start + UI.rowsPerPage;
+                const paginated = filtered.slice(start, end);
+
+                // Update Controls
+                document.getElementById('pg-info').innerText = `Showing ${total > 0 ? start + 1 : 0}-${Math.min(end, total)} of ${total}`;
+                document.getElementById('pg-prev').disabled = UI.currentPage === 1;
+                document.getElementById('pg-next').disabled = end >= total;
+
+                const tbody = document.querySelector('#inventoryTable tbody');
+                tbody.innerHTML = '';
+
+                paginated.forEach(item => {
+                    let badge = 'st-good';
+                    if(item.status === 'Assigned') badge = 'st-assigned';
+                    if(item.status === 'Damaged') badge = 'st-damaged';
+                    if(item.status === 'Maintenance') badge = 'st-maintenance';
+                    
+                    let actions = '';
+                    if(!isRestricted) {
+                        actions = `
+                        <td style="display:flex; gap:5px;">
+                            <button class="icon-btn" onclick="UI.showQR('${escapeHTML(item.tag)}')"><i class="fas fa-qrcode"></i></button>
+                            <button class="icon-btn" onclick="UI.openModal('edit', '${escapeHTML(item.tag)}')"><i class="fas fa-edit"></i></button>
+                        </td>`;
+                    } else {
+                        actions = `<td><span style="color:#999; font-size:11px;">Read Only</span></td>`;
+                    }
+
+                    // Use escapeHTML to prevent XSS
+                    tbody.innerHTML += `<tr><td style="font-weight:bold;">${escapeHTML(item.tag)}</td><td>${escapeHTML(item.type)}</td><td>${escapeHTML(item.model)}</td><td>${escapeHTML(item.user)}</td><td><span class="status-badge ${badge}">${escapeHTML(item.status)}</span></td>${actions}</tr>`;
+                });
+            },
+            renderHistory: () => {
+                const act = DataService.get('ensActivity');
+                document.getElementById('auditTimeline').innerHTML = act.map(x => `
+                    <div class="timeline-item"><div class="timeline-header"><div class="timeline-title">${escapeHTML(x.type)} - ${escapeHTML(x.user)}</div><div class="timeline-date">${new Date(x.date).toLocaleString()}</div></div><p class="timeline-details">${escapeHTML(x.details)}</p></div>
+                `).join('');
+            }
+        };
+
+        const Workflow = {
+            currentStep: 1,
+            nextStep: (n) => {
+                // Logic checks for issuance step 1 -> 2
+                if(n === 2 && Workflow.currentStep === 1) {
+                     if(!document.getElementById('iss-name').value) return alert("Please enter a name");
+                     // Auto-check email
+                     if(!document.getElementById('iss-email').value) Workflow.autoFillEmail();
+                }
+                // Logic checks for issuance step 2 -> 3
+                if(n === 3 && Workflow.currentStep === 2) {
+                     const tag = document.getElementById('iss-tag').value;
+                     if(!tag) return alert("Enter Asset Tag");
+                     
+                     const asset = DataService.get('ensInventory').find(i => i.tag === tag);
+                     if(!asset) return alert("Asset not found in database");
+                     if(asset.status !== 'Available') return alert(`Asset is currently ${asset.status}. Must be 'Available' to issue.`);
+                     
+                     document.getElementById('iss-model').value = asset.model; // Autofill verification
+                }
+
+                document.querySelectorAll('[id^="form-step-"]').forEach(d => d.style.display = 'none');
+                document.getElementById(`form-step-${n}`).style.display = 'block';
+                document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+                document.getElementById(`i-step-${n}`).classList.add('active');
+                Workflow.currentStep = n;
+            },
+            prevStep: (n) => {
+                document.querySelectorAll('[id^="form-step-"]').forEach(d => d.style.display = 'none');
+                document.getElementById(`form-step-${n}`).style.display = 'block';
+                document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+                document.getElementById(`i-step-${n}`).classList.add('active');
+                Workflow.currentStep = n;
+            },
+            autoFillEmail: () => {
+                const name = document.getElementById('iss-name').value;
+                const emailInput = document.getElementById('iss-email');
+                if(name && !emailInput.value.includes('@')) {
+                    const slug = name.toLowerCase().replace(/\s+/g, '.');
+                    emailInput.value = `${slug}@ensafrica.com`;
+                }
+            },
+            completeIssuance: () => {
+                const name = document.getElementById('iss-name').value;
+                const email = document.getElementById('iss-email').value;
+                const tag = document.getElementById('iss-tag').value;
+                
+                // Verify Email Domain
+                if(!email.endsWith('@ensafrica.com')) {
+                    if(!confirm(`The email ${email} does not end with @ensafrica.com. Continue anyway?`)) return;
+                }
+
+                // Capture Signature for persistence
+                const canvas = document.getElementById('sig-canvas');
+                const sigData = canvas.toDataURL(); // Base64 string
+                
+                // Generate PDF
+                html2pdf().set({ margin: 10, filename: `Issuance_${tag}.pdf`, jsPDF: { unit: 'mm', format: 'a4' } }).from(document.getElementById('issuance-card')).save().then(() => {
+                    // Save to DB
+                    DataService.updateInv(tag, { user: name, status: 'Assigned' });
+                    // Log activity WITH signature data (truncated for display, but saved)
+                    DataService.addActivity('Issuance', `Issued ${tag} to ${name} (${email}). [Sig Captured]`, JSON.parse(localStorage.getItem('ensCurrentUser'))?.name);
+                    
+                    UI.showToast('PDF Saved & Inventory Updated');
+                    setTimeout(() => UI.switchView('dashboard'), 1000);
+                });
+            },
+            completeMovement: () => {
+                const tag = document.getElementById('mov-tag').value;
+                const nw = document.getElementById('mov-new').value;
+                const asset = DataService.get('ensInventory').find(i => i.tag === tag);
+                
+                if(!asset) return alert("Asset not found");
+                // if(asset.status !== 'Assigned') return alert("Asset must be currently Assigned to be Transferred.");
+
+                DataService.updateInv(tag, { user: nw, status: 'Assigned' });
+                DataService.addActivity('Transfer', `Transferred ${tag} to ${nw}`, JSON.parse(localStorage.getItem('ensCurrentUser'))?.name);
+                UI.showToast('Transfer Complete'); UI.switchView('inventory');
+            },
+            completeRetrieval: () => {
+                const tag = document.getElementById('ret-tag').value;
+                const asset = DataService.get('ensInventory').find(i => i.tag === tag);
+                
+                if(!asset) return alert("Asset not found");
+                if(asset.status === 'Available') return alert("Asset is already Available.");
+
+                const damaged = document.querySelectorAll('.damage-item.selected').length > 0;
+                DataService.updateInv(tag, { status: damaged ? 'Damaged' : 'Available' });
+                DataService.addActivity('Return', `Returned ${tag}. Status: ${damaged?'Damaged':'OK'}`, JSON.parse(localStorage.getItem('ensCurrentUser'))?.name);
+                UI.showToast('Return Processed'); UI.switchView('inventory');
+            },
+            initSig: () => {
+                const c = document.getElementById('sig-canvas');
+                const ctx = c.getContext('2d');
+                c.width = c.offsetWidth; c.height = c.offsetHeight;
+                let paint = false;
+                
+                // Mouse Events
+                c.onmousedown = (e) => { paint = true; ctx.beginPath(); ctx.moveTo(e.offsetX, e.offsetY); };
+                c.onmousemove = (e) => { if(paint) { ctx.lineTo(e.offsetX, e.offsetY); ctx.stroke(); } };
+                c.onmouseup = () => paint = false;
+                c.onmouseleave = () => paint = false;
+
+                // Touch Events (Mobile Fix)
+                c.addEventListener('touchstart', (e) => {
+                    e.preventDefault(); // Prevent scroll
+                    paint = true;
+                    const touch = e.touches[0];
+                    const rect = c.getBoundingClientRect();
+                    ctx.beginPath();
+                    ctx.moveTo(touch.clientX - rect.left, touch.clientY - rect.top);
+                }, { passive: false });
+
+                c.addEventListener('touchmove', (e) => {
+                    e.preventDefault();
+                    if(paint) {
+                        const touch = e.touches[0];
+                        const rect = c.getBoundingClientRect();
+                        ctx.lineTo(touch.clientX - rect.left, touch.clientY - rect.top);
+                        ctx.stroke();
+                    }
+                }, { passive: false });
+
+                c.addEventListener('touchend', () => paint = false);
+
+                Workflow.clearSig = () => ctx.clearRect(0,0,c.width,c.height);
+            }
+        };
+
+        document.addEventListener('DOMContentLoaded', App.init);
+    </script>
+</body>
+</html>
