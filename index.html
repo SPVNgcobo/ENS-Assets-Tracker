@@ -978,7 +978,7 @@
   };
 
 
-  /* ---------- WORKFLOW ---------- */
+/* ---------- WORKFLOW (UPDATED WITH SAFETY LOGIC) ---------- */
   const Workflow = {
     currentStep: 1,
     ctx: null,
@@ -987,6 +987,7 @@
 
     nextStep: (n) => {
       if(n === 2 && !document.getElementById('iss-name').value) return alert('Name required');
+      
       document.querySelectorAll('[id^="form-step-"]').forEach(el=>el.style.display='none');
       const el = document.getElementById(`form-step-${n}`);
       if(el) el.style.display='block';
@@ -1002,6 +1003,7 @@
       Workflow.currentStep = n;
     },
     
+    // LOGIC FIX: Added stricter status checks during lookup
     lookupAsset: (mode) => {
         const tagField = document.getElementById(mode + '-tag');
         const tag = (tagField.value || '').trim();
@@ -1014,10 +1016,35 @@
         const display = document.getElementById(mode + '-asset-display');
         const displayNew = document.getElementById(mode + '-new-details') || document.getElementById(mode + '-details');
         
+        // Reset displays
+        if(displayNew) displayNew.style.display = 'none';
+
         if(found) {
             display.style.display = 'block';
-            display.style.borderColor = 'var(--success)';
-            // Populate labels based on mode
+            
+            // --- LOGIC GUARDS ---
+            // 1. Issuance: Warn if already assigned
+            if(mode === 'iss' && found.status === 'Assigned') {
+                display.style.borderColor = 'var(--danger)';
+                alert(`WARNING: Asset ${tag} is currently assigned to ${found.user}. You should Return it before re-issuing.`);
+            } 
+            // 2. Transfer: Block if not assigned
+            else if (mode === 'mov' && found.status !== 'Assigned') {
+                display.style.borderColor = 'var(--danger)';
+                alert(`ERROR: Asset ${tag} is ${found.status}. You cannot transfer an unassigned asset.`);
+                Workflow.activeAsset = null; // Prevent proceeding
+                return; 
+            }
+            // 3. Return: Block if already available
+            else if (mode === 'ret' && found.status === 'Available') {
+                display.style.borderColor = 'var(--danger)';
+                alert(`Note: Asset ${tag} is already in stock.`);
+            }
+            else {
+                display.style.borderColor = 'var(--success)';
+            }
+
+            // Render Labels
             if(mode === 'iss'){
                 document.getElementById('iss-lbl-tag').innerText = found.tag;
                 document.getElementById('iss-lbl-type').innerText = found.type;
@@ -1037,7 +1064,6 @@
             display.style.display = 'block';
             display.style.borderColor = 'var(--danger)';
             display.innerHTML = `<div style="color:var(--danger);font-weight:bold;text-align:center">Asset Tag Not Found</div>`;
-            if(displayNew) displayNew.style.display = 'none';
             setTimeout(() => { display.style.display = 'none'; display.innerHTML=''; }, 2000);
         }
     },
@@ -1045,16 +1071,27 @@
     validateAndNext: () => {
         const tag = document.getElementById('iss-tag').value;
         if(!tag) return alert('Please scan or enter an Asset Tag');
+        
+        // Ensure lookup happens
         if(!Workflow.activeAsset || Workflow.activeAsset.tag !== tag) {
              Workflow.lookupAsset('iss');
-             setTimeout(() => {
-                 if(Workflow.activeAsset) Workflow.nextStep(3);
-                 else alert('Asset not found');
-             }, 200);
-        } else { Workflow.nextStep(3); }
+        }
+        
+        setTimeout(() => {
+             if(!Workflow.activeAsset) return alert('Asset not found');
+             // LOGIC FIX: Stop Issuance if asset is assigned
+             if(Workflow.activeAsset.status === 'Assigned') {
+                 if(!confirm(`Asset is currently assigned to ${Workflow.activeAsset.user}. Overwrite assignment?`)) return;
+             }
+             Workflow.nextStep(3);
+        }, 250);
     },
 
-    prevStep: (n) => { Workflow.nextStep(n); },
+    // UI FIX: Clear signature when going back
+    prevStep: (n) => { 
+        if(n === 2) Workflow.clearSig();
+        Workflow.nextStep(n); 
+    },
 
     autoFillEmail: () => {
       const name = (document.getElementById('iss-name').value || '').trim();
@@ -1130,6 +1167,12 @@
       const init = (document.getElementById('iss-initials').value || '').trim();
       if(!init) return alert('Initials required');
       
+      // Logic Check before finalizing
+      if(Workflow.activeAsset && Workflow.activeAsset.status === 'Assigned') {
+           // Double check in case they bypassed the previous alert
+           if(!confirm(`FINAL WARNING: This asset is owned by ${Workflow.activeAsset.user}. Re-assign to ${name}?`)) return;
+      }
+
       const btn = event.target;
       btn.disabled = true; btn.innerText = 'Processing...';
 
@@ -1182,6 +1225,9 @@
         
         if(!Workflow.activeAsset || Workflow.activeAsset.tag !== tag) return alert('Re-scan tag to confirm');
         
+        // Logic Check
+        if(Workflow.activeAsset.status !== 'Assigned') return alert('Cannot transfer: Asset is not currently assigned to anyone.');
+
         const oldUser = Workflow.activeAsset.user;
         DataService.updateInv(tag, { user: newUser, status: 'Assigned' });
         DataService.log('Transfer', `Transferred ${tag} from ${oldUser} to ${newUser}`, 'Admin');
@@ -1201,6 +1247,9 @@
         const cond = document.getElementById('ret-condition').value;
         if(!tag) return alert('Tag required');
         if(!Workflow.activeAsset || Workflow.activeAsset.tag !== tag) return alert('Re-scan tag to confirm');
+        
+        // Logic Check
+        if(Workflow.activeAsset.status === 'Available') return alert('Asset is already checked in/available.');
 
         const currentUser = Workflow.activeAsset.user;
         
@@ -1209,9 +1258,7 @@
 
         if(doPdf) {
             btn.disabled=true; btn.innerText = 'Generating Receipt...';
-            // Generate receipt logic
             const element = document.getElementById('return-card');
-            // temporarily hide buttons
             const btns = element.querySelectorAll('button, input[type=checkbox]');
             btns.forEach(b=>b.style.display='none');
             
@@ -1237,9 +1284,23 @@
         }, 1000);
     }
   };
+    
+    _finalizeReturn: (tag, cond, oldUser) => {
+        DataService.updateInv(tag, { user: '', status: cond });
+        DataService.log('Return', `Returned ${tag} from ${oldUser} (Condition: ${cond})`, 'Admin');
+        UI.toast('Asset Returned to Stock', 'success');
+        setTimeout(() => {
+             UI.switchView('dashboard');
+             document.getElementById('ret-tag').value='';
+             document.getElementById('ret-asset-display').style.display='none';
+             document.getElementById('ret-details').style.display='none';
+        }, 1000);
+    }
+  };
 
   /* ---------- START ---------- */
   document.addEventListener('DOMContentLoaded', App.init);
   </script>
 </body>
 </html>
+
